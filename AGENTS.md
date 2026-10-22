@@ -5,12 +5,13 @@ Personal research project measuring whole-server energy use of vLLM inference.
 
 ## Intent
 
-`docs/` is the source of intent. Read it before designing anything:
+**`VISION.md` is the source of intent.** Read it before doing anything. It
+states what we are learning, the configuration, the method decisions already
+settled, and what we are explicitly not doing.
 
-- `closeout_report.md` — the grant this serves, and the routing research
-  program it sits in
-- `data_requirements.md` — what to collect and what analysis it feeds
-- `references.md` — prior work and dataset
+`docs/` is background: the grant this serves, the routing research program it
+sits in, and a generic telemetry schema written before the scope was set.
+Do not treat `docs/` as requirements.
 
 ## Rules
 
@@ -24,4 +25,4 @@ Personal research project measuring whole-server energy use of vLLM inference.
 
 ## Research questions
 
-Still being pinned down. Do not infer them from the v1 code.
+Settled. See `VISION.md`. Do not infer them from the v1 code.

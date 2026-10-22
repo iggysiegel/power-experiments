@@ -1,6 +1,21 @@
-# Data Requirements for the LLM Power Modeling Research Project
+# Background: Generic Fleet Telemetry Schema
 
-Data requirements are broken down by component to be collected. The data analysis plan follows below.
+Background only, written before this project's scope was set. It describes a
+multi-GPU, multi-system, multi-model, multimodal fleet — far wider than one H100
+running one model. **Not requirements.** `VISION.md` is the source of intent.
+
+Two things here are still worth keeping when we design our own fields:
+
+- the join unit — a query interval joined to a power timeseries on wall-clock
+  timestamps
+- the per-system `power_draw` alongside per-GPU `power_draw`, since the GPU is
+  only about a third of this box's idle draw
+
+The three "correlation" analyses below that name modalities, model identity, and
+token usage are all either out of scope or already covered by v1. What this
+project actually turns on is the fourth bullet, "accounting for simultaneous
+queries" — and under `VISION.md` that means measuring cost *at* an occupancy
+level, not decomposing one batch's joules among its members.
 
 ## Data Collection
 
