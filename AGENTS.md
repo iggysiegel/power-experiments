@@ -2,7 +2,15 @@
 
 Personal research project measuring whole-server energy use of vLLM inference.
 `v1/` holds a throwaway first attempt — reference only, not a model to follow.
-All new work goes in `v2/`.
+
+## Intent
+
+`docs/` is the source of intent. Read it before designing anything:
+
+- `closeout_report.md` — the grant this serves, and the routing research
+  program it sits in
+- `data_requirements.md` — what to collect and what analysis it feeds
+- `references.md` — prior work and dataset
 
 ## Rules
 
@@ -16,4 +24,4 @@ All new work goes in `v2/`.
 
 ## Research questions
 
-Being pinned down. Do not infer them from the v1 code.
+Still being pinned down. Do not infer them from the v1 code.
