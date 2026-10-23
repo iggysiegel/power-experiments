@@ -74,12 +74,12 @@ from contaminating each other.
 - **Own steady window per stage.** Baseline, load, prefill, and decode are
   separate runs with their own start and stop, not phases carved out of one
   long trace. Boundaries stop mattering, and no segmentation step is needed.
-- **Both power layers, GPU primary.** GPU at 10 Hz via
-  `nvidia-smi --loop-ms=100`; whole system at ~1 Hz via
-  `ipmitool -I open dcmi power reading` (whose integration floor sets the
-  rate). The GPU is ~92 W of a ~294 W idle box, so the system trace explains
-  rather than headlines. Record the GPU trace in full because transients —
-  KV pool allocation, CUDA graph capture during load — are visible only there.
+- **Both power layers, GPU primary.** GPU at 10 Hz via NVML; whole system at
+  ~1 Hz via `ipmitool -I open dcmi power reading` (whose integration floor
+  sets the rate). The GPU is ~92 W of a ~294 W idle box, so the system trace
+  explains rather than headlines. Record the GPU trace in full because
+  transients — KV pool allocation, CUDA graph capture during load — are
+  visible only there.
 - **Incremental above idle is the primary metric.** Total energy is mostly a
   fact about the machine being on.
 - **One wall-clock anchor per run** joins `--save-detailed` output (relative
