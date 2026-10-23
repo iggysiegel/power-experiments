@@ -5,6 +5,7 @@ writing, and stopping are the caller's job.
 """
 
 import subprocess
+import sys
 import time
 from collections.abc import Iterator
 
@@ -65,14 +66,20 @@ def system_samples(
     """
     while True:
         cmd = ["sudo", "-n", "ipmitool", "-I", "open"]
-        out = subprocess.run(
-            [*cmd, "dcmi", "power", "reading"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        line = next(
-            r for r in out.splitlines() if "Instantaneous power reading" in r
-        )
-        yield {"power_w": int(line.split(":")[1].split()[0])}
+        try:
+            out = subprocess.run(
+                [*cmd, "dcmi", "power", "reading"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            line = next(
+                r
+                for r in out.splitlines()
+                if "Instantaneous power reading" in r
+            )
+            yield {"power_w": int(line.split(":")[1].split()[0])}
+        # One bad poll does not end the run.
+        except subprocess.CalledProcessError as exc:
+            print(f"ipmitool failed: {exc}", file=sys.stderr, flush=True)
         time.sleep(interval_ms / 1000)

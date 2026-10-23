@@ -82,6 +82,9 @@ from contaminating each other.
   visible only there.
 - **Incremental above idle is the primary metric.** Total energy is mostly a
   fact about the machine being on.
+- **A failed DCMI poll is skipped, not fatal.** The BMC returns an error every
+  few minutes; the gap costs about 0.03% of system joules, so dropping the
+  sample and logging it beats discarding the run.
 - **One wall-clock anchor per run** joins `--save-detailed` output (relative
   times) to the power trace.
 - **Load reported as two terms.** Cold start off → ready is the headline.
