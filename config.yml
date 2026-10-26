@@ -1,0 +1,28 @@
+container: vllm-qwen
+url: http://127.0.0.1:8000
+model: Qwen/Qwen3.8-27B
+idle_s: 30
+off_s: 30
+
+runs:
+  load:
+    restart: true
+
+  prefill:
+    bench:
+      random-input-len: 2048
+      random-output-len: 1
+      num-prompts: 100
+      max-concurrency: 1
+      prompt-token-ids: true
+      save-detailed: true
+
+  decode:
+    bench:
+      random-input-len: 128
+      random-output-len: 512
+      num-prompts: 200
+      max-concurrency: 8
+      ignore-eos: true
+      prompt-token-ids: true
+      save-detailed: true

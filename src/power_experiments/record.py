@@ -1,13 +1,21 @@
-"""Write sampler rows to CSV, one wall-clock UTC timestamp per row.
-
-Runs until its thread is killed, so the file on disk is the only record.
-"""
+"""Write CSVs whose rows each carry a wall-clock UTC timestamp."""
 
 import csv
 import datetime
 import itertools
 import pathlib
 from collections.abc import Iterator
+
+
+def now() -> str:
+    """Read the wall clock as a CSV timestamp.
+
+    Returns:
+        The current time in UTC, ISO 8601 to the microsecond.
+    """
+    return datetime.datetime.now(datetime.UTC).isoformat(
+        timespec="microseconds"
+    )
 
 
 def write_csv(path: pathlib.Path, samples: Iterator[dict]) -> None:
@@ -24,9 +32,20 @@ def write_csv(path: pathlib.Path, samples: Iterator[dict]) -> None:
         writer.writeheader()
         f.flush()
         for row in itertools.chain([first], samples):
-            stamp = datetime.datetime.now(datetime.UTC).isoformat(
-                timespec="microseconds"
-            )
-            writer.writerow({"timestamp": stamp, **row})
+            writer.writerow({"timestamp": now(), **row})
             # The thread dies at exit, so flush every row.
             f.flush()
+
+
+def write_phase(path: pathlib.Path, phase: str) -> None:
+    """Append a row saying a phase begins now.
+
+    Args:
+        path: File to append to, created with its header if absent.
+        phase: Name of the phase.
+    """
+    new = not path.exists()
+    with open(path, "a") as f:
+        if new:
+            f.write("timestamp,phase\n")
+        f.write(f"{now()},{phase}\n")
