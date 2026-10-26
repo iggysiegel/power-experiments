@@ -3,7 +3,7 @@
 Run from the repo root.
 
 Usage:
-    uv run scripts/run.py <config> <name>
+    uv run scripts/extract.py <config> <name>
 """
 
 import argparse

@@ -112,7 +112,7 @@ named and states only what it does. Bench settings are `vllm-bench` flags
 written without their dashes and passed through unread, so the benchmark's
 knobs live in config, not code. `model` is passed to `vllm-bench` so it
 loads the tokenizer locally; without it, it spends ~50 s asking the server. A
-run is one invocation: `uv run scripts/run.py config.yml decode`.
+run is one invocation: `uv run scripts/extract.py config.yml decode`.
 
 ```yaml
 container: vllm-qwen

@@ -15,7 +15,8 @@ Also needs `vllm-bench` on the path, Docker access, and passwordless
 ## Run
 
 ```
-uv run scripts/run.py config.yml <run>    # load, prefill, or decode
+uv run scripts/extract.py config.yml <run>    # load, prefill, or decode
+uv run scripts/transform.py                   # results/results.csv
 uv run pytest
 ```
 

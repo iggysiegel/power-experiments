@@ -4,6 +4,7 @@ version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [
     "nvidia-ml-py>=12",
+    "pandas>=3.1.0",
     "pyyaml>=6.0.3",
 ]
 
