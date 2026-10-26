@@ -33,6 +33,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def wait_until_rested(max_c: float) -> None:
+    """Wait until the GPU is at or below a temperature.
+
+    Args:
+        max_c: Highest temperature that counts as resting, in °C.
+    """
+    while True:
+        temp = next(samplers.gpu_samples())["temp_c"]
+        if temp <= max_c:
+            return
+        print(f"GPU at {temp} °C, waiting for {max_c} °C", flush=True)
+        time.sleep(10)
+
+
 def vllm_bench_command(run: dict, out_dir: pathlib.Path) -> list[str]:
     """Build the vllm-bench command line for a run's workload.
 
@@ -86,8 +100,11 @@ def main() -> None:
 
     phases = out_dir / "phases.csv"
     if run.get("restart"):
-        # docker stop returns once the container is down.
         subprocess.run(["docker", "stop", run["container"]], check=True)
+        record.write_phase(phases, "settle")
+        print("settle", flush=True)
+        wait_until_rested(run["rest_max_c"])
+
         record.write_phase(phases, "off")
         print("off", flush=True)
         time.sleep(run["off_s"])
@@ -102,6 +119,10 @@ def main() -> None:
                 break
             except OSError:
                 time.sleep(1)
+
+    record.write_phase(phases, "settle")
+    print("settle", flush=True)
+    wait_until_rested(run["rest_max_c"])
 
     record.write_phase(phases, "idle")
     print("idle", flush=True)

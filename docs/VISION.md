@@ -61,10 +61,11 @@ hardware.
 Every run is the same sequence with two optional parts:
 
 ```
-  [ restart: off → load ]  →  idle  →  [ bench: workload ]
-        optional              always         optional
+  [ restart: settle → off → load ]  →  settle → idle  →  [ bench: workload ]
+            optional                        always            optional
 ```
 
+- **Settle** waits for the GPU to cool to rest before each resting phase.
 - **Restart** stops the container, holds it down (the off phase), then starts
   it and waits for the endpoint to answer (the load phase).
 - **Idle** holds the server up with no requests. Every run has one.
@@ -119,6 +120,7 @@ url: http://127.0.0.1:8000
 model: Qwen/Qwen3.8-27B
 idle_s: 30
 off_s: 30
+rest_max_c: 45
 
 runs:
   load:
@@ -184,8 +186,12 @@ timestamp,phase
   everything else on the box, whose draw drifts, so an idle level from an
   hour earlier would land its error on every per-token figure. A run's own
   idle phase also stands alone and shows any stray request.
-- **Off begins once `docker stop` returns.** The shutdown before it is in the
-  trace but is not a phase.
+- **Every resting phase starts at rest.** A GPU warm from earlier work idles
+  several watts high (92.5 W at 43 °C against ~100 W at 59 °C), and the error
+  lands on every figure measured against it. So off and idle are each
+  preceded by a settle phase that waits until the GPU is at or below
+  `rest_max_c`. Nothing is measured during settle.
+- **Off begins once the GPU has settled after `docker stop`.**
 - **Load is the trip from `docker start` to the endpoint answering.**
   Readiness is `/v1/models` responding, which happens only after `Application
   startup complete`. Reported as total joules, joules above off, and seconds.
@@ -255,9 +261,6 @@ concurrency points, repeats to separate signal from noise.
 
 ## Later, if v2 lands
 
-- **Let the GPU cool before idle.** A GPU still warm from the previous run
-  idles several watts high while it cools (92.5 W at 43 °C against ~100 W at
-  59 °C), which biases idle and off and so every figure above them.
 - **Split load into weight transfer and engine init.** Transfer as J/GB, init
   as J against KV pool size, both from vLLM's startup log timestamps
   (`Model loading took 51.01 GiB memory and 10.22 seconds`, `init engine …

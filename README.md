@@ -25,12 +25,13 @@ traces, when each phase began, and the run's settings.
 ## Phases
 
 ```
-  [ off → load ]  →  idle  →  [ workload ]
-     restart         always       bench
+  [ settle → off → load ]  →  settle → idle  →  [ workload ]
+          restart                  always            bench
 ```
 
 | Phase | What is happening | Measures |
 |---|---|---|
+| settle | waiting for the GPU to cool to rest | nothing |
 | off | container stopped | W |
 | load | container starting, until it answers | J and s |
 | idle | model loaded, no requests | W |
