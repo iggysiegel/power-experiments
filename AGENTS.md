@@ -17,11 +17,12 @@ set. Do not treat those as requirements.
 
 This is a live server. Other work runs on this box and must keep running.
 
-- The GPU is ours only via the vLLM container already serving Qwen. Do not
-  start, stop, reconfigure, or `nvidia-smi -pl` anything, and do not touch
-  other containers, processes, or services.
-- Experiments are read-only observers plus our own benchmark client. No system
-  changes.
+- The GPU is ours only via the vLLM container serving Qwen (`vllm-qwen`).
+  Experiments may stop and start that one container, and nothing else. Do not
+  reconfigure it, do not `nvidia-smi -pl` anything, and do not touch other
+  containers, processes, or services.
+- Experiments are read-only observers plus our own benchmark client and that
+  stop/start. No other system changes.
 - Never leave stray processes behind. Kill everything you start.
 
 ## Rules
