@@ -73,8 +73,8 @@ Every run is the same sequence with two optional parts:
 - **Idle** holds the server up with no requests. Every run has one.
 - **Bench** runs `vllm-bench` with the run's settings (workload).
 
-A **load run** is restart with no bench, one per repeat. A **workload run** is
-bench with no restart, one per curve point, against the server already up.
+A **load run** is restart with no bench. A **workload run** is bench with no
+restart, one per curve point, against the server already up.
 
 ```
  Load run
@@ -113,7 +113,7 @@ prefix cache serves most of each prompt.
 ## Experiment file
 
 One YAML file per experiment in `experiments/`, named for the model and
-container setup it runs against: shared settings, then `repeats`, then each
+container setup it runs against: shared settings, then each
 named run with its fixed bench settings and an optional `sweep`. A sweep's
 lists are read side by side: point *i* takes the *i*-th value of each, so
 decode's prompt count scales with its concurrency.
@@ -153,8 +153,9 @@ above its run's idle. Workload rows also carry the requests and output tokens
 completed, and every bench flag as set.
 
 `plot.py` fits each curve on both traces, writes `prefill.png`, `decode.png`,
-`agentic.png`, and `load.png` into `results/`, and prints the coefficients and
-break-even times.
+`agentic.png`, `load.png`, and `timeline.png` into `results/`, and prints the
+coefficients and break-even times. The timeline shows both traces across every
+run with its phases shaded, to spot anything odd during the night.
 
 ## Method decisions already settled
 
@@ -162,11 +163,11 @@ break-even times.
   phase the runner began and ended itself, never carved out of a long trace
   afterwards.
 - **One run, one point.** A failed run loses one point, not the sweep.
-- **Repeats run the whole experiment, shuffled,** so drift over the night does
-  not line up with any sweep.
-- **A fresh seed per run.** `vllm-bench` seeds with 0 by default, so repeats
-  would send identical prompts and hit the prefix cache. Each run is seeded
-  from its start time, so caching helps only within a run.
+- **Runs are shuffled,** so drift over the night does not line up with any
+  sweep.
+- **A fresh seed per run.** `vllm-bench` seeds with 0 by default, so runs
+  would share prompts and hit the prefix cache. Each run is seeded from its
+  start time, so caching helps only within a run.
 - **Each workload run subtracts its own idle.** The system trace includes
   everything else on the box, whose draw drifts.
 - **Every resting phase starts at rest.** A warm GPU idles several watts high
@@ -177,7 +178,7 @@ break-even times.
   after `Application startup complete`.
 - **Both power layers, GPU primary.** GPU at 10 Hz via NVML; whole system at
   ~1 Hz via `ipmitool -I open dcmi power reading`, whose integration floor
-  sets the rate. The GPU is ~93 W of a ~292 W idle box, so the system trace
+  sets the rate. The GPU is ~93 W of a ~295 W idle box, so the system trace
   explains rather than headlines.
 - **Energy above idle is the primary workload metric.** Total energy is
   mostly a fact about the machine being on.
@@ -208,33 +209,29 @@ break-even times.
 
 ## Results
 
-First full run: `experiments/qwen3.8-27b.yml`, 3 repeats, 69 runs, night of
-2026-10-26/27, ~9.6 h. Every run completed with no failed requests.
+First full run: `experiments/qwen3.8-27b.yml`, 23 runs, night of
+2026-10-26/27, ~3.2 h, 1.5 h of it settling. Every run completed with no
+failed requests.
 
 | | GPU | Whole server |
 |---|---|---|
-| Off | 64 W | 260 W |
-| Idle | 93 W | 292 W |
-| Load above off (76–84 s) | 4.1 kJ | 9.9 kJ |
-| Break-even idle time | 142 s | 281 s |
-| Prefill J/request, `a + b·L + c·L²` | 5.1 + 0.036·L + 2.5e-7·L² | 3.0 + 0.037·L + 8.2e-7·L² |
-| Decode J/token, `a + b/n` | 0.062 + 5.5/n | 0.079 + 6.9/n |
-| Agentic J/turn, `a + b·p` | 744 + 0.0016·p | 930 + 0.0020·p |
+| Off | 64 W | 256 W |
+| Idle | 93 W | 295 W |
+| Load above off (78 s) | 4.1 kJ | 10.3 kJ |
+| Break-even idle time | 140 s | 266 s |
+| Prefill J/request, `a + b·L + c·L²` | 5.2 + 0.036·L + 2.4e-7·L² | 5.1 + 0.037·L + 8.8e-7·L² |
+| Decode J/token, `a + b/n` | 0.063 + 5.5/n | 0.079 + 6.9/n |
+| Agentic J/turn, `a + b·p` | 743 + 0.0016·p | 940 + 0.0017·p |
 
 Shapes, for the report to state:
 
-- **Prefill is not strongly sublinear.** Per input token it falls from 0.078 J
+- **Prefill is not strongly sublinear.** Per input token it falls from 0.079 J
   at 128 to ~0.038 J at 2–4k, then rises to 0.043 J at 32k. This contradicts
   v1's "+14% from 128 to 4096".
 - **Decode follows `a + b/n` closely,** 37x from concurrency 1 to 64, and is
   still falling at 64, so the floor `a` is extrapolated.
 - **Agentic is nearly flat,** +7% from a 1k to a 32k prefix; each turn is
   mostly its 128 output tokens.
-
-Repeats agree closely. GPU spread is under 0.35% at every point except
-prefill at 128 and 256 tokens (2%). The system trace spreads 8–19% on prefill
-up to 1024 tokens, whose runs last 6–15 s against a 1 Hz meter. Load spreads
-~4%. Settle took 4.5 of the 9.6 h.
 
 Remaining: the report.
 
@@ -254,9 +251,6 @@ Remaining: the report.
 
 ## Later, if v2 lands
 
-- **Fewer repeats.** One repeat of the workloads would likely do, with more
-  prompts at the short prefill points to lengthen those runs; keep three load
-  runs, which are cheap and spread the most.
 - **Split load into weight transfer and engine init,** from vLLM's startup log
   timestamps, already recorded in `container.log`, cross-checked against the
   10 Hz trace.

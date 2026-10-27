@@ -11,20 +11,15 @@ from collections.abc import Iterator
 
 import pynvml
 
-# Below this, GPU readings repeat.
-GPU_FLOOR_MS = 100
+# Sample period. Any faster and GPU readings repeat.
+GPU_INTERVAL_MS = 100
 
-# Below this, DCMI repeats.
-SYSTEM_FLOOR_MS = 1000
+# Sample period. Any faster and DCMI repeats.
+SYSTEM_INTERVAL_MS = 1000
 
 
-def gpu_samples(
-    interval_ms: int = GPU_FLOOR_MS,
-) -> Iterator[dict[str, float | int]]:
+def gpu_samples() -> Iterator[dict[str, float | int]]:
     """Sample the GPU's power, energy, and health at a fixed rate.
-
-    Args:
-        interval_ms: Period between rows.
 
     Yields:
         One row per interval. `energy_mj` is a lifetime total, so only the
@@ -50,16 +45,11 @@ def gpu_samples(
                 handle, pynvml.NVML_TEMPERATURE_GPU
             ),
         }
-        time.sleep(interval_ms / 1000)
+        time.sleep(GPU_INTERVAL_MS / 1000)
 
 
-def system_samples(
-    interval_ms: int = SYSTEM_FLOOR_MS,
-) -> Iterator[dict[str, int]]:
+def system_samples() -> Iterator[dict[str, int]]:
     """Sample whole-server power at a fixed rate.
-
-    Args:
-        interval_ms: Period between rows.
 
     Yields:
         One row per interval with `power_w` for the whole server.
@@ -82,4 +72,4 @@ def system_samples(
         # One bad poll does not end the run.
         except subprocess.CalledProcessError as exc:
             print(f"ipmitool failed: {exc}", file=sys.stderr, flush=True)
-        time.sleep(interval_ms / 1000)
+        time.sleep(SYSTEM_INTERVAL_MS / 1000)

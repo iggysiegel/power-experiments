@@ -44,7 +44,7 @@ def expand_points(config: dict) -> list[dict]:
         Each point's settings: the shared settings, the run's, and its name,
         with that point's sweep values in `bench`.
     """
-    shared = {k: v for k, v in config.items() if k not in ["runs", "repeats"]}
+    shared = {k: v for k, v in config.items() if k != "runs"}
     points = []
     for name, run in config["runs"].items():
         settings = {**shared, **run, "name": name}
@@ -179,21 +179,20 @@ def record_run(run: dict) -> None:
 
 
 def main() -> None:
-    """Record every point of every run, once per repeat, in shuffled order."""
+    """Record every point of every run, in shuffled order."""
     args = parse_args()
     config = yaml.safe_load(args.experiment.read_text())
     points = expand_points(config)
-    for _ in range(config["repeats"]):
-        # Shuffled so drift over the night does not line up with a sweep.
-        random.shuffle(points)
-        for run in points:
-            # Each run in its own process, since its sampler threads only
-            # stop when the process exits.
-            process = multiprocessing.Process(target=record_run, args=(run,))
-            process.start()
-            process.join()
-            if process.exitcode != 0:
-                print(f"{run['name']} {run.get('bench')} failed", flush=True)
+    # Shuffled so drift over the night does not line up with a sweep.
+    random.shuffle(points)
+    for run in points:
+        # Each run in its own process, since its sampler threads only stop
+        # when the process exits.
+        process = multiprocessing.Process(target=record_run, args=(run,))
+        process.start()
+        process.join()
+        if process.exitcode != 0:
+            print(f"{run['name']} {run.get('bench')} failed", flush=True)
 
 
 if __name__ == "__main__":
