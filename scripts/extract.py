@@ -1,14 +1,16 @@
-"""Record one named run from a config file into results/<name>-<time>/.
+"""Record every run of an experiment file into results/<name>-<time>/.
 
 Run from the repo root.
 
 Usage:
-    uv run scripts/extract.py <config> <name>
+    uv run scripts/extract.py <experiment>
 """
 
 import argparse
 import datetime
+import multiprocessing
 import pathlib
+import random
 import subprocess
 import threading
 import time
@@ -26,11 +28,35 @@ def parse_args() -> argparse.Namespace:
         The parsed arguments.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("config", type=pathlib.Path, help="YAML config file")
     parser.add_argument(
-        "name", help="which run in the config, e.g. load, prefill, decode"
+        "experiment", type=pathlib.Path, help="YAML experiment file"
     )
     return parser.parse_args()
+
+
+def expand_points(config: dict) -> list[dict]:
+    """Expand each run in an experiment into one set of settings per point.
+
+    Args:
+        config: The experiment file's contents.
+
+    Returns:
+        Each point's settings: the shared settings, the run's, and its name,
+        with that point's sweep values in `bench`.
+    """
+    shared = {k: v for k, v in config.items() if k not in ["runs", "repeats"]}
+    points = []
+    for name, run in config["runs"].items():
+        settings = {**shared, **run, "name": name}
+        sweep = settings.pop("sweep", None)
+        if not sweep:
+            points.append(settings)
+            continue
+        for values in zip(*sweep.values(), strict=True):
+            sweep_flags = dict(zip(sweep, values, strict=True))
+            bench = {**settings["bench"], **sweep_flags}
+            points.append({**settings, "bench": bench})
+    return points
 
 
 def wait_until_rested(max_c: float) -> None:
@@ -73,15 +99,18 @@ def vllm_bench_command(run: dict, out_dir: pathlib.Path) -> list[str]:
     return command
 
 
-def main() -> None:
-    """Record the run's phases and traces into its own directory."""
-    # Read the config, merge the run over the shared settings, and save it.
-    args = parse_args()
-    config = yaml.safe_load(args.config.read_text())
-    shared = {k: v for k, v in config.items() if k != "runs"}
-    run = {**shared, **config["runs"][args.name]}
+def record_run(run: dict) -> None:
+    """Record one run's phases and traces into its own directory.
+
+    Args:
+        run: The run's settings, as one point from `expand_points`.
+    """
+    # A fresh seed keeps prompts from repeating across runs, so the prefix
+    # cache only helps within a run. Save the settings with it.
     began = datetime.datetime.now(datetime.UTC)
-    out_dir = pathlib.Path("results") / f"{args.name}-{began:%Y%m%dT%H%M%S}"
+    if "bench" in run:
+        run["bench"]["seed"] = int(began.timestamp())
+    out_dir = pathlib.Path("results") / f"{run['name']}-{began:%Y%m%dT%H%M%S}"
     out_dir.mkdir(parents=True)
     (out_dir / "config.yml").write_text(yaml.safe_dump(run, sort_keys=False))
     print(f"writing to {out_dir}/", flush=True)
@@ -147,6 +176,24 @@ def main() -> None:
                 stderr=subprocess.STDOUT,
                 check=True,
             )
+
+
+def main() -> None:
+    """Record every point of every run, once per repeat, in shuffled order."""
+    args = parse_args()
+    config = yaml.safe_load(args.experiment.read_text())
+    points = expand_points(config)
+    for _ in range(config["repeats"]):
+        # Shuffled so drift over the night does not line up with a sweep.
+        random.shuffle(points)
+        for run in points:
+            # Each run in its own process, since its sampler threads only
+            # stop when the process exits.
+            process = multiprocessing.Process(target=record_run, args=(run,))
+            process.start()
+            process.join()
+            if process.exitcode != 0:
+                print(f"{run['name']} {run.get('bench')} failed", flush=True)
 
 
 if __name__ == "__main__":

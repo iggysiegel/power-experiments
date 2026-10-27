@@ -1,7 +1,7 @@
 # power-experiments
 
 Measures the power and energy of serving LLM inference with vLLM on one
-server.
+server. See `docs/VISION.md` for what we are learning and how.
 
 ## Setup
 
@@ -15,28 +15,9 @@ Also needs `vllm-bench` on the path, Docker access, and passwordless
 ## Run
 
 ```
-uv run scripts/extract.py config.yml <run>    # load, prefill, or decode
-uv run scripts/transform.py                   # results/results.csv
-uv run pytest
+uv run scripts/extract.py experiments/qwen3.8-27b.yml    # record every run
+uv run scripts/transform.py                              # tabulate them
 ```
 
-Each run records into `results/<run>-<utc time>/`: the GPU and system power
-traces, when each phase began, and the run's settings.
-
-## Phases
-
-```
-  [ settle → off → load ]  →  settle → idle  →  [ workload ]
-          restart                  always            bench
-```
-
-| Phase | What is happening | Measures |
-|---|---|---|
-| settle | waiting for the GPU to cool to rest | nothing |
-| off | container stopped | W |
-| load | container starting, until it answers | J and s |
-| idle | model loaded, no requests | W |
-| workload | `vllm-bench` running | J above idle, per request (prefill) or per output token (decode) |
-
-The `load` run restarts the container; `prefill` and `decode` run a bench
-against the server already up.
+Each run records into `results/<run>-<utc time>/`, and the table goes to
+`results/results.csv`.

@@ -18,23 +18,22 @@ from power_experiments import energy
 RESULTS = pathlib.Path("results")
 
 
-def workload_columns(run_dir: pathlib.Path) -> dict[str, int]:
-    """Read what a run's workload was asked to do and what it did.
+def workload_columns(run_dir: pathlib.Path) -> dict:
+    """Read what a run's workload did and what it was asked to do.
 
     Args:
         run_dir: The run's directory.
 
     Returns:
-        Input length and concurrency as set, requests and output tokens as
-        completed.
+        Requests and output tokens as completed, then every bench flag as
+        set.
     """
     bench_flags = yaml.safe_load((run_dir / "config.yml").read_text())["bench"]
     bench = json.loads((run_dir / "bench.json").read_text())
     return {
-        "input_len": bench_flags["random-input-len"],
-        "concurrency": bench_flags["max-concurrency"],
         "requests": bench["completed"],
         "output_tokens": bench["total_output_tokens"],
+        **bench_flags,
     }
 
 

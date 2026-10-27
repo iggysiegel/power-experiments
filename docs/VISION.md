@@ -20,6 +20,7 @@ about the work.
 | Load | J and s, off → answering | one-time |
 | Prefill workload | J per request vs. input length | strongly sublinear |
 | Decode workload | J per output token vs. concurrency | roughly `a + b/concurrency` |
+| Agentic workload | J per turn vs. shared prefix length | far flatter than prefill, if the prefix cache works |
 
 The three levels and load together answer a question of their own: how long
 the model must sit unused before stopping the container saves energy.
@@ -72,7 +73,7 @@ Every run is the same sequence with two optional parts:
 - **Bench** runs `vllm-bench` with the run's settings (the workload phase).
 
 In practice two combinations are used. A **load run** is restart with no
-bench: one per model or container change. A **workload run** is bench with no
+bench: one per repeat of an experiment. A **workload run** is bench with no
 restart: many, one per curve point, against the server already up. Combining
 both in one run works but is not the normal path — a sweep would mean an
 outage and a cold start per point.
@@ -96,23 +97,34 @@ outage and a cold start per point.
       │     idle      │          workload          │
 ```
 
-Prefill and decode are not two code paths. They are two sets of bench
-settings, and differ only in what the energy is divided by. Each curve varies
-one setting across runs and holds the rest:
+Prefill, decode, and agentic are not three code paths. They are three sets of
+bench settings, and differ only in what the energy is divided by. Each curve
+varies one setting across runs and holds the rest:
 
 | Workload | Varied across runs | Held fixed | Divided by |
 |---|---|---|---|
 | Prefill | input length | 1 output token, concurrency 1 | requests |
 | Decode | concurrency | input and output length, `ignore-eos` | output tokens |
+| Agentic | shared prefix length | 8 turns of short input and output, concurrency 1 | turns |
 
-## Config
+The agentic workload is `vllm-bench`'s multi-turn mode: each session shares a
+prefix, standing in for a system prompt and tool definitions, and resends its
+growing history every turn, so the prefix cache serves most of each prompt.
 
-One YAML file at the repo root. Shared settings sit at the top; each run is
-named and states only what it does. Bench settings are `vllm-bench` flags
-written without their dashes and passed through unread, so the benchmark's
-knobs live in config, not code. `model` is passed to `vllm-bench` so it
-loads the tokenizer locally; without it, it spends ~50 s asking the server. A
-run is one invocation: `uv run scripts/extract.py config.yml decode`.
+## Experiment file
+
+One YAML file per experiment in `experiments/`, named for the model and
+container setup it runs against. Shared settings sit at the top, then how many
+times to repeat the whole experiment, then each named run with its fixed bench
+settings and an optional `sweep`. A sweep's lists are read side by side: point
+*i* takes the *i*-th value of each, so decode's prompt count scales with its
+concurrency.
+
+Bench settings are `vllm-bench` flags written without their dashes and passed
+through unread, so the benchmark's knobs live in the file, not code. `model`
+is passed to `vllm-bench` so it loads the tokenizer locally; without it, it
+spends ~50 s asking the server. An experiment is one invocation:
+`uv run scripts/extract.py experiments/qwen3.8-27b.yml`.
 
 ```yaml
 container: vllm-qwen
@@ -121,6 +133,7 @@ model: Qwen/Qwen3.8-27B
 idle_s: 30
 off_s: 30
 rest_max_c: 45
+repeats: 3
 
 runs:
   load:
@@ -128,22 +141,38 @@ runs:
 
   prefill:
     bench:
-      random-input-len: 2048
       random-output-len: 1
       num-prompts: 100
       max-concurrency: 1
       prompt-token-ids: true
       save-detailed: true
+    sweep:
+      random-input-len: [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768]
 
   decode:
     bench:
       random-input-len: 128
       random-output-len: 512
-      num-prompts: 200
-      max-concurrency: 8
       ignore-eos: true
       prompt-token-ids: true
       save-detailed: true
+    sweep:
+      max-concurrency: [1, 2, 4, 8, 16, 32, 64]
+      num-prompts: [25, 50, 100, 200, 400, 800, 1600]
+
+  agentic:
+    bench:
+      backend: openai-chat
+      random-input-len: 128
+      random-output-len: 128
+      num-prompts: 20
+      max-concurrency: 1
+      multi-turn: true
+      multi-turn-num-turns: 8
+      ignore-eos: true
+      save-detailed: true
+    sweep:
+      random-prefix-len: [1024, 2048, 4096, 8192, 16384, 32768]
 ```
 
 ## Output
@@ -153,7 +182,7 @@ collide. `results/` is not committed.
 
 ```
 results/decode-20261026T180200/
-  config.yml     the settings this run used
+  config.yml     the settings this run used, seed included
   phases.csv     when each phase began, then `end`
   gpu.csv        GPU trace, 10 Hz
   system.csv     whole-server trace, 1 Hz
@@ -161,7 +190,7 @@ results/decode-20261026T180200/
   container.log  vLLM's timestamped log of the restart     (restart runs)
 ```
 
-The runner records; analysis computes. A run directory holds only raw
+`extract.py` records; `transform.py` computes. A run directory holds only raw
 information — what was asked, what happened and when, and the power traces —
 so every number is computed afterwards and can be recomputed or replotted
 without going near the GPU again. All timestamps are wall-clock UTC from the
@@ -169,11 +198,19 @@ same host, so phases line up with the traces directly.
 
 ```
 timestamp,phase
-2026-10-26T18:45:47.103221+00:00,off
-2026-10-26T18:46:17.103498+00:00,load
-2026-10-26T18:47:38.604421+00:00,idle
-2026-10-26T18:48:08.604602+00:00,end
+2026-10-26T22:17:48.746249+00:00,settle
+2026-10-26T22:17:48.750952+00:00,off
+2026-10-26T22:18:18.751422+00:00,load
+2026-10-26T22:19:42.248236+00:00,settle
+2026-10-26T22:19:42.257739+00:00,idle
+2026-10-26T22:20:12.258109+00:00,end
 ```
+
+`transform.py` reads every run directory that reached `end` into
+`results/results.csv`: one row per measured phase, with its seconds, and W, J,
+and J above its baseline on both traces. Load is measured above its run's off,
+and workload above its run's idle. Workload rows also carry the requests and
+output tokens completed, and every bench flag as set.
 
 ## Method decisions already settled
 
@@ -182,6 +219,13 @@ timestamp,phase
   afterwards. No segmentation step is needed.
 - **One run, one point.** A workload run produces one curve point; twenty
   lengths means twenty runs. A failed run loses one point, not the sweep.
+- **Repeats run the whole experiment, shuffled.** Each repeat records every
+  point once in a fresh random order, so drift over the night does not line
+  up with any sweep.
+- **A fresh seed per run.** `vllm-bench` seeds its random prompts with 0 by
+  default, so repeats would send identical prompts and could hit the prefix
+  cache. Each run is seeded from its start time instead, so caching helps only
+  within a run.
 - **Each workload run subtracts its own idle.** The system trace includes
   everything else on the box, whose draw drifts, so an idle level from an
   hour earlier would land its error on every per-token figure. A run's own
@@ -212,6 +256,8 @@ timestamp,phase
 - **Input lengths are exact.** By default `vllm-bench` sends random text that
   the server retokenizes, landing about 5% short of the requested length.
   `prompt-token-ids` sends token IDs instead, so the x-axis is what we set.
+  Multi-turn needs the chat backend, which sends text through the chat
+  template, so agentic prompts are not exact.
 - **Prefill runs emit one decode token.** Not worth correcting for.
 - **Decode runs carry a fixed prefill offset.** Every decode request prefills
   its input first, but that length is held constant across a sweep, so the
@@ -232,18 +278,17 @@ timestamp,phase
 
 ## Done looks like
 
-Three levels, load, and two curves with fits:
+Three levels, load, and three curves with fits:
 
 - off and idle in W, load in J and s, and the break-even idle time
 - prefill: J per request vs. input length
 - decode: J per output token vs. concurrency
+- agentic: J per turn vs. shared prefix length
 
 plus a report stating the shapes and their coefficients.
 
-The first pass is three runs — load, one prefill point, one decode point —
-which exercises every part end to end without committing to a sweep.
-Widening is then more named runs in the config: more input lengths, more
-concurrency points, repeats to separate signal from noise.
+Widening is more points in a sweep, or another experiment file for another
+model or container setup.
 
 ## Not doing
 
@@ -268,10 +313,9 @@ concurrency points, repeats to separate signal from noise.
 - **Clear the compile cache before a load run.** vLLM caches compiled kernels
   in the `vllm-compile-cache` volume, so the first load runs measure a warm
   start. Clearing adds ~25 s of compilation; worth it if warm and cold differ.
-- **An agentic workload.** A long shared prefix, short instruction, short
-  output, several sessions across turns (`random-prefix-len`, `multi-turn`).
-  Prefix caching then matters, and comparing it on and off is a result;
-  `reset-prefix-cache` needs `VLLM_SERVER_DEV_MODE=1` on the container.
+- **Agentic with the prefix cache on and off.** Comparing the two is a
+  result; `reset-prefix-cache` needs `VLLM_SERVER_DEV_MODE=1` on the
+  container, and either is a second experiment file.
 - **Arrival rate as an axis** alongside concurrency.
 - Sweep the power cap (200–400 W). It fans the measurements apart — prefill
   collapses in throughput, load and decode barely move — which is evidence
@@ -279,6 +323,6 @@ concurrency points, repeats to separate signal from noise.
   grant's "power-constrained equipment".
 - Dense vs. MoE and quantization, where energy stops tracking FLOPs and
   starts tracking expert routing and weight bandwidth. Each is a container
-  change, after which the same config runs again.
+  change, after which the same runs go in a new experiment file.
 - Multiple serving instances contending for one power budget, as a proxy for
   scheduling across instances.
