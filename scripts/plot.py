@@ -19,6 +19,13 @@ from numpy.polynomial import polynomial
 RESULTS = pathlib.Path("results")
 SOURCES = {"gpu": "GPU", "system": "Whole server"}
 
+# The bench flag each workload varies across its runs.
+SWEPT = {
+    "prefill": "random-input-len",
+    "decode": "max-concurrency",
+    "agentic": "random-prefix-len",
+}
+
 
 def read(run: str, filename: str) -> pd.DataFrame:
     """Read one of a run's timestamped CSVs.
@@ -104,7 +111,7 @@ def plot_prefill(table: pd.DataFrame) -> None:
     plot_with_fits(
         ax,
         points,
-        "random-input-len",
+        SWEPT["prefill"],
         lambda v: v,
         2,
         "prefill J/request = a + b * input + c * input^2",
@@ -129,7 +136,7 @@ def plot_decode(table: pd.DataFrame) -> None:
     plot_with_fits(
         ax,
         points,
-        "max-concurrency",
+        SWEPT["decode"],
         lambda v: 1 / v,
         1,
         "decode J/token = a + b / concurrency",
@@ -154,7 +161,7 @@ def plot_agentic(table: pd.DataFrame) -> None:
     plot_with_fits(
         ax,
         points,
-        "random-prefix-len",
+        SWEPT["agentic"],
         lambda v: v,
         1,
         "agentic J/turn = a + b * prefix",
@@ -199,6 +206,7 @@ def plot_run(
     source: str,
     began: pd.Timestamp,
     color: str,
+    label: str | None,
 ) -> None:
     """Plot one run's trace and shade its measured phases.
 
@@ -208,6 +216,7 @@ def plot_run(
         source: `"gpu"` or `"system"`.
         began: Time drawn as zero, in hours.
         color: Shade for the run's load or workload phase.
+        label: Text along the bottom of the load or workload phase, if any.
     """
     phases = read(run, "phases.csv")
     starts = (phases.timestamp - began).dt.total_seconds() / 3600
@@ -217,6 +226,17 @@ def plot_run(
     ):
         if phase in ["load", "workload"]:
             ax.axvspan(start, stop, color=color, alpha=0.3, linewidth=0)
+            if label:
+                ax.text(
+                    (start + stop) / 2,
+                    0.03,
+                    label,
+                    transform=ax.get_xaxis_transform(),
+                    rotation=90,
+                    ha="center",
+                    va="bottom",
+                    fontsize=7,
+                )
         elif phase in ["off", "idle"]:
             ax.axvspan(start, stop, color="0.85", linewidth=0)
     trace = read(run, f"{source}.csv")
@@ -235,12 +255,24 @@ def plot_timeline(table: pd.DataFrame) -> None:
     names = sorted({run.split("-")[0] for run in runs})
     colors = {name: f"C{i}" for i, name in enumerate(names)}
     began = read(runs[0], "phases.csv").timestamp.iloc[0]
+
+    # Label each run with the value it swept, on the GPU row only.
+    workloads = table[table.phase == "workload"].set_index("run")
+    labels = {}
+    for run in runs:
+        name = run.split("-")[0]
+        if name in SWEPT:
+            labels[run] = f"{name} {workloads.loc[run, SWEPT[name]]:.0f}"
+        else:
+            labels[run] = name
+
     fig, axes = plt.subplots(
         2, 1, figsize=(20, 6), sharex=True, layout="tight"
     )
     for ax, (source, label) in zip(axes, SOURCES.items(), strict=True):
         for run in runs:
-            plot_run(ax, run, source, began, colors[run.split("-")[0]])
+            text = labels[run] if source == "gpu" else None
+            plot_run(ax, run, source, began, colors[run.split("-")[0]], text)
         ax.set_ylabel(f"{label} (W)")
         ax.margins(x=0.005)
     axes[0].legend(
