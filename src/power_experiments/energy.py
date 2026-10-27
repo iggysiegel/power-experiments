@@ -3,6 +3,7 @@
 import datetime
 import pathlib
 
+import numpy as np
 import pandas as pd
 
 
@@ -12,44 +13,53 @@ def window_energy(
     stop: datetime.datetime,
     source: str,
     baseline_w: float = 0.0,
-) -> dict[str, float | int]:
-    """Integrate one CSV's power over a wall-clock window.
+) -> dict[str, float]:
+    """Integrate one CSV's power over exactly a wall-clock window.
 
     The GPU file carries an energy counter that the hardware integrates, so
     joules come from it; the system file has no counter, so apply the
-    trapezoid rule to its power samples instead.
+    trapezoid rule to its power samples instead. Both are interpolated at the
+    window's edges, and carried on at the nearest sample's power where the
+    trace stops short of an edge.
 
     Args:
         path: A CSV from the samplers.
-        start: First timestamp to include.
-        stop: Last timestamp to include.
-        source: `"gpu"` or `"system"`, and the file is checked against it.
+        start: Start of the window.
+        stop: End of the window.
+        source: `"gpu"` or `"system"`, saying which sampler wrote the file.
         baseline_w: Idle draw to subtract for the incremental figures.
 
     Returns:
-        Total and incremental joules, mean watts, and the window measured.
+        Total and incremental joules, and mean watts.
     """
-    # Keep the rows that fall inside the window.
     df = pd.read_csv(path, parse_dates=["timestamp"])
-    df = df[df.timestamp.between(start, stop)]
+    seconds = (stop - start).total_seconds()
+    elapsed = (df.timestamp - start).dt.total_seconds().to_numpy()
+    power_w = df.power_w.to_numpy()
 
-    if len(df) < 2:
-        raise ValueError(f"{path}: {len(df)} rows in window, need 2")
-
-    # Read how far the counter advanced, or integrate the power column.
-    elapsed = (df.timestamp - df.timestamp.iloc[0]).dt.total_seconds()
-    seconds = elapsed.iloc[-1]
     if source == "gpu":
-        joules = (df.energy_mj.iloc[-1] - df.energy_mj.iloc[0]) / 1000
+        # Read the counter at each edge, interpolating between samples, and
+        # past either end of the trace carry it on at the end's power.
+        counter_j = df.energy_mj.to_numpy() / 1000
+        edges = np.array([0.0, seconds])
+        before = np.minimum(edges - elapsed[0], 0)
+        after = np.maximum(edges - elapsed[-1], 0)
+        at_edges = (
+            np.interp(edges, elapsed, counter_j)
+            + power_w[0] * before
+            + power_w[-1] * after
+        )
+        joules = at_edges[1] - at_edges[0]
     else:
-        # Trapezoid rule: each interval at the mean of its two ends.
-        joules = (df.power_w.rolling(2).mean() * elapsed.diff()).sum()
+        # Trapezoid rule over the samples inside plus one point at each edge,
+        # whose power np.interp interpolates, or holds past the trace's ends.
+        inside = (elapsed > 0) & (elapsed < seconds)
+        t = np.concatenate([[0.0], elapsed[inside], [seconds]])
+        joules = np.trapezoid(np.interp(t, elapsed, power_w), t)
 
-    # Report the totals and the rates they imply.
+    # Report the totals and the rate they imply.
     return {
         "joules": joules,
         "joules_incremental": joules - baseline_w * seconds,
         "mean_w": joules / seconds,
-        "n_samples": len(df),
-        "coverage_s": seconds,
     }
