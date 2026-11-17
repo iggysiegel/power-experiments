@@ -7,14 +7,20 @@ Run everything through `uv`: `uv run pytest`, `uv run ruff check`,
 
 ## Shared machine
 
-Other work runs on this server and must keep running.
+This is a live server: other people's services run on it and must keep
+running. Its H100 NVL GPU is ours for these experiments. You may:
 
-- The only thing you may change is whether a vLLM container named by
-  `container:` in `experiments/*.yml` is running: `docker stop` and
-  `docker start` it, and leave it running or stopped as you found it. Leave
-  its configuration, the GPU settings, and every other container, process,
-  and service untouched.
-- Kill every other process you start before you finish.
+- Stop any container running on our GPU for a campaign, and start it again
+  when the campaign ends, with its configuration unchanged.
+- Pull vLLM images.
+- Create, start, stop, and remove the experiment containers, the ones named
+  by `container:` in `experiments/*.yml`.
+- Download those experiments' model weights into the Hugging Face cache, and
+  delete only the weights you downloaded.
+
+Leave everything else as you found it: the GPU settings, every other
+container, process, and service, and every other cached model. Kill every
+process you start before you finish.
 
 ## Workflow
 
