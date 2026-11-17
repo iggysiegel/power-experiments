@@ -1,6 +1,7 @@
 container: vllm-qwen
 url: http://127.0.0.1:8000
 model: Qwen/Qwen3.8-27B
+context_window: 262144
 idle_s: 30
 off_s: 30
 rest_max_c: 45

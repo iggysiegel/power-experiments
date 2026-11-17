@@ -1,11 +1,10 @@
-"""Tabulate every complete run in results/ into results/results.csv.
-
-Run from the repo root.
+"""Tabulate every complete run in a campaign into its results.csv.
 
 Usage:
-    uv run scripts/transform.py
+    uv run scripts/transform.py <campaign directory>
 """
 
+import argparse
 import json
 import pathlib
 import sys
@@ -15,7 +14,36 @@ import yaml
 
 from power_experiments import energy
 
-RESULTS = pathlib.Path("results")
+
+def parse_args() -> argparse.Namespace:
+    """Parse the command line.
+
+    Returns:
+        The parsed arguments.
+    """
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "campaign", type=pathlib.Path, help="campaign directory"
+    )
+    return parser.parse_args()
+
+
+def run_columns(run_dir: pathlib.Path) -> dict:
+    """Name the experiment, model, and context window a run belongs to.
+
+    Args:
+        run_dir: The run's directory, inside its experiment's.
+
+    Returns:
+        The run's experiment, model, and context window, then its name.
+    """
+    config = yaml.safe_load((run_dir / "config.yml").read_text())
+    return {
+        "experiment": run_dir.parent.name,
+        "model": config.get("model"),
+        "context_window": config.get("context_window"),
+        "run": run_dir.name,
+    }
 
 
 def workload_columns(run_dir: pathlib.Path) -> dict:
@@ -54,6 +82,7 @@ def phase_rows(run_dir: pathlib.Path, phases: pd.DataFrame) -> list[dict]:
     # Load is measured above off, and workload above idle.
     above_phase = {"load": "off", "workload": "idle"}
 
+    columns = run_columns(run_dir)
     rows = []
     watts = {}  # (phase, source) -> mean W, for later phases' baselines
     for phase, start, stop in zip(
@@ -61,7 +90,7 @@ def phase_rows(run_dir: pathlib.Path, phases: pd.DataFrame) -> list[dict]:
     ):
         above = above_phase.get(phase)
         row = {
-            "run": run_dir.name,
+            **columns,
             "phase": phase,
             "seconds": (stop - start).total_seconds(),
         }
@@ -84,18 +113,18 @@ def phase_rows(run_dir: pathlib.Path, phases: pd.DataFrame) -> list[dict]:
 
 def main() -> None:
     """Write one row per measured phase of every complete run."""
+    campaign = parse_args().campaign
     rows = []
-    for run_dir in sorted(RESULTS.glob("*/")):
+    for run_dir in sorted(campaign.glob("*/*/")):
         phases = pd.read_csv(run_dir / "phases.csv", parse_dates=["timestamp"])
         if phases.phase.iloc[-1] != "end":
-            print(f"skipping incomplete run {run_dir.name}", file=sys.stderr)
+            print(f"skipping incomplete run {run_dir}", file=sys.stderr)
             continue
         rows.extend(phase_rows(run_dir, phases))
 
     # Integer columns stay integers despite the blanks on non-workload rows.
     table = pd.DataFrame(rows).round(1).convert_dtypes()
-    table.to_csv(RESULTS / "results.csv", index=False)
-    print(f"wrote {len(table)} rows to {RESULTS / 'results.csv'}")
+    table.to_csv(campaign / "results.csv", index=False)
 
 
 if __name__ == "__main__":

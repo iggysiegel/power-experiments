@@ -1,12 +1,11 @@
 """Plot each workload's energy curve with its fit, power during the restart,
-and power across the whole experiment.
-
-Run from the repo root.
+and power across each experiment, into a campaign's directory.
 
 Usage:
-    uv run scripts/plot.py
+    uv run scripts/plot.py <campaign directory>
 """
 
+import argparse
 import pathlib
 from collections.abc import Callable
 
@@ -16,7 +15,6 @@ import pandas as pd
 from matplotlib import patches, ticker
 from numpy.polynomial import polynomial
 
-RESULTS = pathlib.Path("results")
 SOURCES = {"gpu": "GPU", "system": "Whole server"}
 
 # The bench flag each workload varies across its runs.
@@ -27,17 +25,30 @@ SWEPT = {
 }
 
 
-def read(run: str, filename: str) -> pd.DataFrame:
+def parse_args() -> argparse.Namespace:
+    """Parse the command line.
+
+    Returns:
+        The parsed arguments.
+    """
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "campaign", type=pathlib.Path, help="campaign directory"
+    )
+    return parser.parse_args()
+
+
+def read(run_dir: pathlib.Path, filename: str) -> pd.DataFrame:
     """Read one of a run's timestamped CSVs.
 
     Args:
-        run: The run's directory name.
+        run_dir: The run's directory.
         filename: Such as `phases.csv` or `gpu.csv`.
 
     Returns:
         The CSV, with `timestamp` parsed.
     """
-    return pd.read_csv(RESULTS / run / filename, parse_dates=["timestamp"])
+    return pd.read_csv(run_dir / filename, parse_dates=["timestamp"])
 
 
 def workload_points(table: pd.DataFrame, name: str, per: str) -> pd.DataFrame:
@@ -100,11 +111,12 @@ def plot_with_fits(
     ax.legend()
 
 
-def plot_prefill(table: pd.DataFrame) -> None:
+def plot_prefill(campaign: pathlib.Path, table: pd.DataFrame) -> None:
     """Plot prefill energy per request against input length.
 
     Args:
-        table: The results table.
+        campaign: The campaign's directory, to write the figure into.
+        table: The campaign's results table.
     """
     points = workload_points(table, "prefill", "requests")
     fig, ax = plt.subplots(figsize=(6, 4), layout="tight")
@@ -122,14 +134,15 @@ def plot_prefill(table: pd.DataFrame) -> None:
     ax.minorticks_off()
     ax.set_xlabel("Input length (tokens)")
     ax.set_ylabel("Energy above idle per request (J)")
-    fig.savefig(RESULTS / "prefill.png", dpi=200)
+    fig.savefig(campaign / "prefill.png", dpi=200)
 
 
-def plot_decode(table: pd.DataFrame) -> None:
+def plot_decode(campaign: pathlib.Path, table: pd.DataFrame) -> None:
     """Plot decode energy per output token against concurrency.
 
     Args:
-        table: The results table.
+        campaign: The campaign's directory, to write the figure into.
+        table: The campaign's results table.
     """
     points = workload_points(table, "decode", "output_tokens")
     fig, ax = plt.subplots(figsize=(6, 4), layout="tight")
@@ -147,14 +160,15 @@ def plot_decode(table: pd.DataFrame) -> None:
     ax.minorticks_off()
     ax.set_xlabel("Concurrency (requests)")
     ax.set_ylabel("Energy above idle per output token (J)")
-    fig.savefig(RESULTS / "decode.png", dpi=200)
+    fig.savefig(campaign / "decode.png", dpi=200)
 
 
-def plot_agentic(table: pd.DataFrame) -> None:
+def plot_agentic(campaign: pathlib.Path, table: pd.DataFrame) -> None:
     """Plot agentic energy per turn against shared prefix length.
 
     Args:
-        table: The results table.
+        campaign: The campaign's directory, to write the figure into.
+        table: The campaign's results table.
     """
     points = workload_points(table, "agentic", "requests")
     fig, ax = plt.subplots(figsize=(6, 4), layout="tight")
@@ -169,22 +183,23 @@ def plot_agentic(table: pd.DataFrame) -> None:
     ax.set_ylim(bottom=0)
     ax.set_xlabel("Shared prefix length (tokens)")
     ax.set_ylabel("Energy above idle per turn (J)")
-    fig.savefig(RESULTS / "agentic.png", dpi=200)
+    fig.savefig(campaign / "agentic.png", dpi=200)
 
 
-def plot_load(table: pd.DataFrame) -> None:
+def plot_load(campaign: pathlib.Path, table: pd.DataFrame) -> None:
     """Plot the restart's power from off through idle, and print break-even.
 
     Args:
-        table: The results table.
+        campaign: The campaign's directory, to write the figure into.
+        table: The campaign's results table.
     """
     rows = table[table.run.str.startswith("load-")].set_index("phase")
-    run = rows.run.iloc[0]
-    phases = read(run, "phases.csv")
+    run_dir = campaign / rows.experiment.iloc[0] / rows.run.iloc[0]
+    phases = read(run_dir, "phases.csv")
     begins = dict(zip(phases.phase, phases.timestamp, strict=True))
     fig, axes = plt.subplots(2, 1, figsize=(6, 6), sharex=True, layout="tight")
     for ax, (source, label) in zip(axes, SOURCES.items(), strict=True):
-        trace = read(run, f"{source}.csv")
+        trace = read(run_dir, f"{source}.csv")
         trace = trace[trace.timestamp.between(begins["off"], begins["end"])]
         seconds = (trace.timestamp - begins["load"]).dt.total_seconds()
         ax.plot(seconds, trace.power_w, linewidth=1)
@@ -197,12 +212,12 @@ def plot_load(table: pd.DataFrame) -> None:
         print(f"break-even idle  {source:<6}  {break_even_s:.0f} s")
     axes[0].legend()
     axes[1].set_xlabel("Time since docker start (s)")
-    fig.savefig(RESULTS / "load.png", dpi=200)
+    fig.savefig(campaign / "load.png", dpi=200)
 
 
 def plot_run(
     ax: plt.Axes,
-    run: str,
+    run_dir: pathlib.Path,
     source: str,
     began: pd.Timestamp,
     color: str,
@@ -212,13 +227,13 @@ def plot_run(
 
     Args:
         ax: The plot to draw on.
-        run: The run's directory name.
+        run_dir: The run's directory.
         source: `"gpu"` or `"system"`.
         began: Time drawn as zero, in hours.
         color: Shade for the run's load or workload phase.
         label: Text along the bottom of the load or workload phase, if any.
     """
-    phases = read(run, "phases.csv")
+    phases = read(run_dir, "phases.csv")
     starts = (phases.timestamp - began).dt.total_seconds() / 3600
     # Settle is left blank.
     for phase, start, stop in zip(
@@ -239,22 +254,28 @@ def plot_run(
                 )
         elif phase in ["off", "idle"]:
             ax.axvspan(start, stop, color="0.85", linewidth=0)
-    trace = read(run, f"{source}.csv")
+    trace = read(run_dir, f"{source}.csv")
     hours = (trace.timestamp - began).dt.total_seconds() / 3600
     ax.plot(hours, trace.power_w, color="k", linewidth=0.3)
 
 
-def plot_timeline(table: pd.DataFrame) -> None:
-    """Plot both traces across every run, with each run's phases shaded.
+def plot_timeline(
+    campaign: pathlib.Path, table: pd.DataFrame, experiment: str
+) -> None:
+    """Plot both traces across an experiment's runs, with phases shaded.
 
     Args:
-        table: The results table.
+        campaign: The campaign's directory, to write the figure into.
+        table: The campaign's results table.
+        experiment: The experiment to plot.
     """
+    table = table[table.experiment == experiment]
+    experiment_dir = campaign / experiment
     # Run directories end in their start time, so this puts them in order.
     runs = sorted(table.run.unique(), key=lambda run: run.split("-")[1])
     names = sorted({run.split("-")[0] for run in runs})
     colors = {name: f"C{i}" for i, name in enumerate(names)}
-    began = read(runs[0], "phases.csv").timestamp.iloc[0]
+    began = read(experiment_dir / runs[0], "phases.csv").timestamp.iloc[0]
 
     # Label each run with the value it swept, on the GPU row only.
     workloads = table[table.phase == "workload"].set_index("run")
@@ -272,7 +293,8 @@ def plot_timeline(table: pd.DataFrame) -> None:
     for ax, (source, label) in zip(axes, SOURCES.items(), strict=True):
         for run in runs:
             text = labels[run] if source == "gpu" else None
-            plot_run(ax, run, source, began, colors[run.split("-")[0]], text)
+            color = colors[run.split("-")[0]]
+            plot_run(ax, experiment_dir / run, source, began, color, text)
         ax.set_ylabel(f"{label} (W)")
         ax.margins(x=0.005)
     axes[0].legend(
@@ -286,17 +308,19 @@ def plot_timeline(table: pd.DataFrame) -> None:
         ncols=len(names) + 1,
     )
     axes[1].set_xlabel("Hours since the experiment began")
-    fig.savefig(RESULTS / "timeline.png", dpi=200)
+    fig.savefig(campaign / f"{experiment}-timeline.png", dpi=200)
 
 
 def main() -> None:
-    """Write every figure into results/ and print the fits."""
-    table = pd.read_csv(RESULTS / "results.csv")
-    plot_prefill(table)
-    plot_decode(table)
-    plot_agentic(table)
-    plot_load(table)
-    plot_timeline(table)
+    """Write every figure into the campaign's directory and print the fits."""
+    campaign = parse_args().campaign
+    table = pd.read_csv(campaign / "results.csv")
+    plot_prefill(campaign, table)
+    plot_decode(campaign, table)
+    plot_agentic(campaign, table)
+    plot_load(campaign, table)
+    for experiment in table.experiment.unique():
+        plot_timeline(campaign, table, experiment)
 
 
 if __name__ == "__main__":

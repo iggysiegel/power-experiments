@@ -1,9 +1,10 @@
-"""Record every run of an experiment file into results/<name>-<time>/.
+"""Record every run of an experiment file into a campaign.
 
-Run from the repo root.
+Each run goes into results/<campaign>/<experiment>/<name>-<time>/, where the
+experiment is named by its file's stem. Run from the repo root.
 
 Usage:
-    uv run scripts/extract.py <experiment>
+    uv run scripts/extract.py <campaign> <experiment>
 """
 
 import argparse
@@ -28,6 +29,7 @@ def parse_args() -> argparse.Namespace:
         The parsed arguments.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("campaign", help="campaign name")
     parser.add_argument(
         "experiment", type=pathlib.Path, help="YAML experiment file"
     )
@@ -99,18 +101,19 @@ def vllm_bench_command(run: dict, out_dir: pathlib.Path) -> list[str]:
     return command
 
 
-def record_run(run: dict) -> None:
+def record_run(run: dict, experiment_dir: pathlib.Path) -> None:
     """Record one run's phases and traces into its own directory.
 
     Args:
         run: The run's settings, as one point from `expand_points`.
+        experiment_dir: The experiment's directory within its campaign.
     """
     # A fresh seed keeps prompts from repeating across runs, so the prefix
     # cache only helps within a run. Save the settings with it.
     began = datetime.datetime.now(datetime.UTC)
     if "bench" in run:
         run["bench"]["seed"] = int(began.timestamp())
-    out_dir = pathlib.Path("results") / f"{run['name']}-{began:%Y%m%dT%H%M%S}"
+    out_dir = experiment_dir / f"{run['name']}-{began:%Y%m%dT%H%M%S}"
     out_dir.mkdir(parents=True)
     (out_dir / "config.yml").write_text(yaml.safe_dump(run, sort_keys=False))
     print(f"writing to {out_dir}/", flush=True)
@@ -182,13 +185,18 @@ def main() -> None:
     """Record every point of every run, in shuffled order."""
     args = parse_args()
     config = yaml.safe_load(args.experiment.read_text())
+    experiment_dir = (
+        pathlib.Path("results") / args.campaign / args.experiment.stem
+    )
     points = expand_points(config)
     # Shuffled so drift over the night does not line up with a sweep.
     random.shuffle(points)
     for run in points:
         # Each run in its own process, since its sampler threads only stop
         # when the process exits.
-        process = multiprocessing.Process(target=record_run, args=(run,))
+        process = multiprocessing.Process(
+            target=record_run, args=(run, experiment_dir)
+        )
         process.start()
         process.join()
         if process.exitcode != 0:
