@@ -1,4 +1,18 @@
-.venv/
+# Python tooling
 __pycache__/
+.pytest_cache/
 .ruff_cache/
+.venv/
+
+# Experiment output
 results/
+
+# Agent working files
+.scratch/
+docs/adr/
+docs/agents/
+GLOSSARY.md
+
+# Local Claude setup
+.claude_config/
+claude.sh
