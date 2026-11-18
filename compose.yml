@@ -1,0 +1,53 @@
+# One vLLM server per experiment file in experiments/. Create one by name:
+#   docker compose create qwen3.8-27b
+#
+# We downloaded these models' weights and may delete:
+#   hf cache rm model/Qwen/Qwen3.6-35B-A3B model/google/gemma-4-31B-it \
+#     model/google/gemma-4-26B-A4B-it model/meta-models/Muse-Glimmer-30B
+
+x-vllm: &vllm
+  image: vllm/vllm-openai:nightly
+  pull_policy: never
+  profiles: [experiment] # none starts unless named
+  gpus: all
+  ipc: host
+  network_mode: bridge
+  ports:
+    - 127.0.0.1:8000:8000
+  environment:
+    HF_HUB_OFFLINE: "1"
+  volumes:
+    - ~/.cache/huggingface:/root/.cache/huggingface
+    - vllm-compile-cache:/root/.cache/vllm
+  restart: "no"
+  entrypoint: [vllm, serve, --max-num-seqs, "512", --language-model-only]
+
+services:
+  qwen3.8-27b:
+    <<: *vllm
+    container_name: vllm-qwen3.8-27b
+    command: [Qwen/Qwen3.8-27B, --max-model-len, "262144"]
+
+  qwen3.6-35b-a3b:
+    <<: *vllm
+    container_name: vllm-qwen3.6-35b-a3b
+    command: [Qwen/Qwen3.6-35B-A3B, --max-model-len, "262144"]
+
+  gemma-4-31b-it:
+    <<: *vllm
+    container_name: vllm-gemma-4-31b-it
+    command: [google/gemma-4-31B-it, --max-model-len, "262144"]
+
+  gemma-4-26b-a4b-it:
+    <<: *vllm
+    container_name: vllm-gemma-4-26b-a4b-it
+    command: [google/gemma-4-26B-A4B-it, --max-model-len, "262144"]
+
+  muse-glimmer-30b:
+    <<: *vllm
+    container_name: vllm-muse-glimmer-30b
+    command: [meta-models/Muse-Glimmer-30B, --max-model-len, "131072"]
+
+volumes:
+  vllm-compile-cache:
+    external: true
