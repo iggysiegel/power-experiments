@@ -10,13 +10,16 @@ Run everything through `uv`: `uv run pytest`, `uv run ruff check`,
 This is a live server: other people's services run on it and must keep
 running. Its H100 NVL GPU is ours for these experiments. You may:
 
-- Stop any container running on our GPU for a campaign, and start it again
-  when the campaign ends, with its configuration unchanged.
-- Pull vLLM images.
+- Stop any container running on our GPU for a campaign, after saving its
+  `docker inspect` output, and start it again when the campaign ends, with
+  its configuration unchanged.
+- Pull vLLM images between campaigns; a campaign keeps the image it started
+  with.
 - Create, start, stop, and remove the experiment containers, the ones named
   by `container:` in `experiments/*.yml`.
 - Download those experiments' model weights into the Hugging Face cache, and
-  delete only the weights you downloaded.
+  delete only the weights you downloaded. The cache links to `/mnt/data`,
+  which has room for every model; the root disk is small.
 
 Leave everything else as you found it: the GPU settings, every other
 container, process, and service, and every other cached model. Kill every
