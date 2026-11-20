@@ -36,7 +36,7 @@ services:
   gemma-4-31b-it:
     <<: *vllm
     container_name: vllm-gemma-4-31b-it
-    command: [google/gemma-4-31B-it, --max-model-len, "262144"]
+    command: [google/gemma-4-31B-it, --max-model-len, "131072"]
 
   gemma-4-26b-a4b-it:
     <<: *vllm

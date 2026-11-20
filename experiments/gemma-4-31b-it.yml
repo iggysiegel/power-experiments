@@ -1,7 +1,7 @@
 container: vllm-gemma-4-31b-it
 url: http://127.0.0.1:8000
 model: google/gemma-4-31B-it
-context_window: 262144
+context_window: 131072
 idle_s: 30
 off_s: 30
 rest_max_c: 45
@@ -17,8 +17,8 @@ runs:
       prompt-token-ids: true
       save-detailed: true
     sweep:
-      random-input-len: [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 253952]
-      num-prompts: [5000, 5000, 4000, 2500, 1300, 700, 350, 160, 80, 40, 20, 20]
+      random-input-len: [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 122880]
+      num-prompts: [5000, 5000, 4000, 2500, 1300, 700, 350, 160, 80, 40, 20]
 
   decode:
     bench:
@@ -43,4 +43,4 @@ runs:
       ignore-eos: true
       save-detailed: true
     sweep:
-      random-prefix-len: [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 253952]
+      random-prefix-len: [1024, 2048, 4096, 8192, 16384, 32768, 65536, 122880]
