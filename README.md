@@ -26,4 +26,4 @@ uv run scripts/plot.py results/2026-11-final                         # plot
 Each run records into `results/<campaign>/<experiment>/<run>-<utc time>/`,
 where the experiment is the experiment file's name. The campaign's table goes
 to `results/<campaign>/results.csv`, and its figures to
-`results/<campaign>/*.png`.
+`results/<campaign>/figures/`.

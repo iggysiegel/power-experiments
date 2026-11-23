@@ -1,6 +1,6 @@
-"""Plot each workload's energy curve per model with its fits, each model's
-power during the restart, and power and each run's energy across each
-experiment, into a campaign's directory.
+"""Plot each workload's energy curve per model, each model's power during the
+restart, and power and each run's energy across each
+experiment, into a campaign's `figures` directory.
 
 Usage:
     uv run scripts/plot.py <campaign directory>
@@ -9,13 +9,12 @@ Usage:
 import argparse
 import pathlib
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib import lines, patches, ticker
-from numpy.polynomial import polynomial
 
 SOURCES = {"gpu": "GPU", "system": "Whole server"}
 
@@ -43,6 +42,19 @@ def parse_args() -> argparse.Namespace:
         "campaign", type=pathlib.Path, help="campaign directory"
     )
     return parser.parse_args()
+
+
+def save(fig: plt.Figure, campaign: pathlib.Path, name: str) -> None:
+    """Write a figure into the campaign's `figures` directory.
+
+    Args:
+        fig: The figure to write.
+        campaign: The campaign's directory.
+        name: The figure's file name, such as `prefill.png`.
+    """
+    figures = campaign / "figures"
+    figures.mkdir(exist_ok=True)
+    fig.savefig(figures / name, dpi=200)
 
 
 def read(run_dir: pathlib.Path, filename: str) -> pd.DataFrame:
@@ -127,23 +139,14 @@ def with_context_fill(points: pd.DataFrame, tokens: pd.Series) -> pd.DataFrame:
 
 
 def plot_models(
-    points: pd.DataFrame,
-    x: str,
-    basis: Callable,
-    degree: int,
-    colors: dict[str, str],
-    equation: str | None,
+    points: pd.DataFrame, x: str, colors: dict[str, str]
 ) -> tuple[plt.Figure, np.ndarray]:
-    """Plot each model's points and polynomial fit, one panel per source.
+    """Plot each model's points joined in order, one panel per source.
 
     Args:
         points: Rows from `workload_points`.
-        x: Column holding the x-axis value, drawn on a log axis.
-        basis: Function of x the energy is a polynomial in, such as `1 / x`.
-        degree: Degree of the polynomial.
+        x: Column holding the x-axis value.
         colors: From `model_colors`.
-        equation: The fitted form, printed above each model's coefficients
-            in the order its terms appear; if None, nothing is printed.
 
     Returns:
         The figure and its GPU and whole-server panels.
@@ -151,26 +154,16 @@ def plot_models(
     fig, axes = plt.subplots(
         1, 2, figsize=(12, 4.5), sharey=True, layout="tight"
     )
-    if equation:
-        print(equation)
-    width = points.experiment.str.len().max()
     for experiment, rows in points.groupby("experiment"):
-        color = colors[experiment]
-        smooth = np.geomspace(rows[x].min(), rows[x].max(), 200)
+        rows = rows.sort_values(x)
         for ax, source in zip(axes, SOURCES, strict=True):
-            # Values span decades, so fit relative error.
-            fit = polynomial.polyfit(
-                basis(rows[x]), rows[source], degree, w=1 / rows[source]
-            )
-            if equation:
-                coefficients = "  ".join(f"{v:.4g}" for v in fit)
-                print(f"  {experiment:<{width}}  {source:<6}", coefficients)
-            ax.plot(rows[x], rows[source], "o", color=color, label=experiment)
             ax.plot(
-                smooth,
-                polynomial.polyval(basis(smooth), fit),
-                color=color,
+                rows[x],
+                rows[source],
+                "o-",
+                color=colors[experiment],
                 linewidth=1,
+                label=experiment,
             )
     for ax, label in zip(axes, SOURCES.values(), strict=True):
         ax.set_title(label)
@@ -226,36 +219,29 @@ def plot_prefill(
     """Plot prefill energy per request against input length and fill.
 
     Args:
-        campaign: The campaign's directory, to write the figures into.
+        campaign: The campaign's directory.
         table: The campaign's results table.
         colors: From `model_colors`.
     """
     points = workload_points(table, "prefill", "requests")
     x = SWEPT["prefill"]
-    fig, axes = plot_models(
-        points,
-        x,
-        lambda v: v,
-        2,
-        colors,
-        "prefill J/request = a + b * input + c * input^2",
-    )
+    fig, axes = plot_models(points, x, colors)
     for ax in axes:
         log_y(ax)
         count_x(ax, points[x])
         ax.set_xlabel("Input length (tokens)")
     axes[0].set_ylabel("Energy above idle per request (J)")
-    fig.savefig(campaign / "prefill.png", dpi=200)
+    save(fig, campaign, "prefill.png")
 
     points = with_context_fill(points, points[x])
     if points.empty:
         return
-    fig, axes = plot_models(points, "fill", lambda v: v, 2, colors, None)
+    fig, axes = plot_models(points, "fill", colors)
     for ax in axes:
         log_y(ax)
         fill_x(ax)
     axes[0].set_ylabel("Energy above idle per request (J)")
-    fig.savefig(campaign / "prefill-fill.png", dpi=200)
+    save(fig, campaign, "prefill-fill.png")
 
 
 def plot_decode(
@@ -264,26 +250,19 @@ def plot_decode(
     """Plot decode energy per output token against concurrency.
 
     Args:
-        campaign: The campaign's directory, to write the figure into.
+        campaign: The campaign's directory.
         table: The campaign's results table.
         colors: From `model_colors`.
     """
     points = workload_points(table, "decode", "output_tokens")
     x = SWEPT["decode"]
-    fig, axes = plot_models(
-        points,
-        x,
-        lambda v: 1 / v,
-        1,
-        colors,
-        "decode J/token = a + b / concurrency",
-    )
+    fig, axes = plot_models(points, x, colors)
     for ax in axes:
         log_y(ax)
         count_x(ax, points[x])
         ax.set_xlabel("Concurrency (requests)")
     axes[0].set_ylabel("Energy above idle per output token (J)")
-    fig.savefig(campaign / "decode.png", dpi=200)
+    save(fig, campaign, "decode.png")
 
 
 def plot_agentic(
@@ -292,21 +271,19 @@ def plot_agentic(
     """Plot agentic energy per turn against shared prefix length and fill.
 
     Args:
-        campaign: The campaign's directory, to write the figures into.
+        campaign: The campaign's directory.
         table: The campaign's results table.
         colors: From `model_colors`.
     """
     points = workload_points(table, "agentic", "requests")
     x = SWEPT["agentic"]
-    fig, axes = plot_models(
-        points, x, lambda v: v, 1, colors, "agentic J/turn = a + b * prefix"
-    )
+    fig, axes = plot_models(points, x, colors)
     for ax in axes:
         ax.set_ylim(bottom=0)
         count_x(ax, points[x])
         ax.set_xlabel("Shared prefix length (tokens)")
     axes[0].set_ylabel("Energy above idle per turn (J)")
-    fig.savefig(campaign / "agentic.png", dpi=200)
+    save(fig, campaign, "agentic.png")
 
     # The bench counts each turn's prompt as the prefix plus one input and
     # one output per turn so far, its own included: on the pilot, the final
@@ -317,12 +294,12 @@ def plot_agentic(
     points = with_context_fill(points, final_prompt)
     if points.empty:
         return
-    fig, axes = plot_models(points, "fill", lambda v: v, 1, colors, None)
+    fig, axes = plot_models(points, "fill", colors)
     for ax in axes:
         ax.set_ylim(bottom=0)
         fill_x(ax)
     axes[0].set_ylabel("Energy above idle per turn (J)")
-    fig.savefig(campaign / "agentic-fill.png", dpi=200)
+    save(fig, campaign, "agentic-fill.png")
 
 
 def plot_load(
@@ -331,7 +308,7 @@ def plot_load(
     """Plot each model's restart power, and print its break-even time.
 
     Args:
-        campaign: The campaign's directory, to write the figure into.
+        campaign: The campaign's directory.
         table: The campaign's results table.
         colors: From `model_colors`.
     """
@@ -375,7 +352,7 @@ def plot_load(
         ]
     )
     axes[1].set_xlabel("Time since docker start (s)")
-    fig.savefig(campaign / "load.png", dpi=200)
+    save(fig, campaign, "load.png")
 
 
 def run_labels(table: pd.DataFrame) -> dict[str, str]:
@@ -486,7 +463,7 @@ def plot_timeline(
     """Plot both traces across an experiment's runs, with phases shaded.
 
     Args:
-        campaign: The campaign's directory, to write the figure into.
+        campaign: The campaign's directory.
         table: The campaign's results table.
         experiment: The experiment to plot.
     """
@@ -510,7 +487,7 @@ def plot_timeline(
         ax.margins(x=0.005)
     legend_runs(axes[0], colors)
     axes[1].set_xlabel("Hours since the experiment began")
-    fig.savefig(campaign / f"{experiment}-timeline.png", dpi=200)
+    save(fig, campaign, f"{experiment}-timeline.png")
 
 
 def plot_run_energy(
@@ -519,7 +496,7 @@ def plot_run_energy(
     """Plot each run's energy, split at its idle or off level, in run order.
 
     Args:
-        campaign: The campaign's directory, to write the figure into.
+        campaign: The campaign's directory.
         table: The campaign's results table.
         experiment: The experiment to plot.
     """
@@ -550,11 +527,11 @@ def plot_run_energy(
         ax.margins(x=0.01)
     legend_runs(axes[0], colors)
     axes[1].set_xticks(x, list(labels.values()), rotation=90, fontsize=7)
-    fig.savefig(campaign / f"{experiment}-run-energy.png", dpi=200)
+    save(fig, campaign, f"{experiment}-run-energy.png")
 
 
 def main() -> None:
-    """Write every figure into the campaign's directory and print the fits."""
+    """Write every figure into the campaign's figures and print break-even."""
     campaign = parse_args().campaign
     table = pd.read_csv(campaign / "results.csv")
     colors = model_colors(table)
