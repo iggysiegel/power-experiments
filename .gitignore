@@ -4,8 +4,11 @@ __pycache__/
 .ruff_cache/
 .venv/
 
-# Experiment output
-results/
+# Experiment output: keep each campaign's table and figures, not its raw runs
+results/*/*
+!results/*/results.csv
+!results/*/figures/
+!results/*/*.png
 
 # Agent working files
 .scratch/
